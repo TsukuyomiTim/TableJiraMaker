@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         Sheet Cancel Helper (Plover)
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  Частич./Полная отмена из Google-таблицы выплат
 // @author       Plover
+// @updateURL    https://github.com/TsukuyomiTim/TableJiraMaker/raw/refs/heads/main/sheet-cancel-plover.user.js
+// @downloadURL  https://github.com/TsukuyomiTim/TableJiraMaker/raw/refs/heads/main/sheet-cancel-plover.user.js
 // @match        *://docs.google.com/*
 // @match        *://docs.google.com/spreadsheets/*
 // @match        *://docs.google.com/spreadsheets/d/*
