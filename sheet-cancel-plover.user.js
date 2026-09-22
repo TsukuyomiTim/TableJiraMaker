@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sheet Cancel Helper (Plover)
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      1.10
 // @description  Частич./Полная отмена из Google-таблицы выплат
 // @author       Plover
 // @updateURL    https://github.com/TsukuyomiTim/TableJiraMaker/raw/refs/heads/main/sheet-cancel-plover.user.js
@@ -36,6 +36,7 @@
     const FORM_PARTIAL = 'https://tasks.deltasystem.tech/servicedesk/customer/portal/22/create/894';
     const FORM_FULL = 'https://tasks.deltasystem.tech/servicedesk/customer/portal/22/create/1170';
     const DATA_KEY = 'plover_sheet_cancel_v1';
+    const FORM_SOURCE_KEY = 'plover_form_source_v1';
 
     const PROJECT_VALUES = {
         'Cat': '13907', 'Gama': '13908', 'Daddy': '13909', 'Kent': '13910',
@@ -452,23 +453,61 @@
         return null;
     }
 
-    async function openWithdrawalsSection() {
-        const nodes = [...document.querySelectorAll('a, button, span, li, td, h2, h3, .nav-link, [role="tab"]')];
-        const tab = nodes.find(n => /запросы на вывод/i.test((n.textContent || '').replace(/\s+/g, ' ').trim()));
-        if (tab) {
-            tab.click();
-            await sleep(1600);
-            return true;
+    function isLeftMenu(el) {
+        if (!el) return false;
+        if (el.closest('nav, aside, .sidebar, .main-sidebar, .left-menu, #sidebar, .menu-wrapper')) return true;
+        const r = el.getBoundingClientRect();
+        return r.left < 260 && r.width < 420 && r.height < 80;
+    }
+
+    function inPageByText(re, exact) {
+        const nodes = [...document.querySelectorAll('a, button, span, li, td, h2, h3, h4, legend, .panel-heading, [role="tab"], div')];
+        return nodes.find(n => {
+            if (n.children.length > 6) return false;
+            if (isLeftMenu(n)) return false;
+            const t = (n.textContent || '').replace(/\s+/g, ' ').trim();
+            return exact ? re.test(t) && t.length < 80 : re.test(t);
+        }) || null;
+    }
+
+    async function openInPageSection(titleRe) {
+        const el = inPageByText(titleRe, false);
+        if (!el) return false;
+        el.scrollIntoView({ block: 'center', behavior: 'instant' });
+        await sleep(200);
+        el.click();
+        await sleep(900);
+        return true;
+    }
+
+    async function openAllFolder() {
+        const section = inPageByText(/вывод средств/i, false);
+        if (section) {
+            section.scrollIntoView({ block: 'center', behavior: 'instant' });
+            await sleep(200);
+            if (section.closest('a, button, [role="button"], .accordion-toggle')) section.click();
+            else section.click();
+            await sleep(700);
         }
-        const href = [...document.querySelectorAll('a[href]')].find(a =>
-            /payout|withdraw|cashout|cash-out|vyvod|outputrequest/i.test((a.getAttribute('href') || '') + ' ' + a.textContent)
-        );
-        if (href) {
-            href.click();
-            await sleep(1600);
+        const root = section?.closest('.panel, .card, .box, section, .widget, fieldset, .tab-pane, form') || document;
+        const allBtn = [...root.querySelectorAll('a, button, span, li, td, div')].find(n => {
+            if (isLeftMenu(n) || n.children.length > 4) return false;
+            return /^все$/i.test((n.textContent || '').replace(/\s+/g, ' ').trim());
+        });
+        if (allBtn) {
+            allBtn.scrollIntoView({ block: 'center', behavior: 'instant' });
+            allBtn.click();
+            await sleep(1200);
             return true;
         }
         return false;
+    }
+
+    async function openWithdrawalsSection() {
+        window.scrollTo(0, document.body.scrollHeight * 0.35);
+        await sleep(400);
+        await openInPageSection(/^запросы на вывод$/i) || await openInPageSection(/запросы на вывод/i);
+        await sleep(400);
     }
 
     function cellByHeader(row, table, headerNames) {
@@ -508,10 +547,9 @@
         if (data.stage !== 'profile') return;
         if (Date.now() - data.timestamp > 15 * 60 * 1000) return;
 
-        showStatus('Plover: открываю Запросы на вывод…');
+        showStatus('Plover: ищу ордер на странице профиля…');
         await sleep(1200);
         await openWithdrawalsSection();
-        await sleep(800);
         showStatus('Plover: ищу ордер ' + (data.order || '') + ' в Запросах на вывод…');
 
         data.isVip = detectExactVip();
@@ -521,7 +559,12 @@
         let requestedAmount = '';
 
         if (data.order) {
-            const row = findOrderRow(data.order);
+            let row = findOrderRow(data.order);
+            if (!row) {
+                showStatus('Plover: в Запросах на вывод нет ордера, открываю Вывод средств → Все…');
+                await openAllFolder();
+                row = findOrderRow(data.order);
+            }
             const table = row?.closest('table');
             if (row && table) {
                 payName = cellByHeader(row, table, ['Платёжная система', 'Платежная система', 'ПС', 'Payment system', 'Payment System']);
@@ -557,6 +600,7 @@
         showStatus('Plover: метод ' + (data.psp || '—') + '\nдата ' + (data.withdrawDate || '—') + '\nсумма ' + (data.requestedAmount || '—'));
         await sleep(500);
 
+        GM_setValue(FORM_SOURCE_KEY, 'sheet');
         const form = data.action === 'fullcancel' ? FORM_FULL : FORM_PARTIAL;
         const params = new URLSearchParams();
         const summary = [data.playerId, data.project, data.psp].filter(Boolean).join(' / ').replace(' / ', ' ').replace(/^(\d+\s+\S+)\s\/\s/, '$1 / ');
@@ -767,6 +811,7 @@
     }
 
     function startFormFill() {
+        if (GM_getValue(FORM_SOURCE_KEY) === 'helpdesk') return;
         const raw = GM_getValue(DATA_KEY);
         if (!raw) return;
         let data;
