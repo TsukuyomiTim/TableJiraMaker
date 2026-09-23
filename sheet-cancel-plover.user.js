@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sheet Cancel Helper (Plover)
 // @namespace    http://tampermonkey.net/
-// @version      1.10
+// @version      1.11
 // @description  Частич./Полная отмена из Google-таблицы выплат
 // @author       Plover
 // @updateURL    https://github.com/TsukuyomiTim/TableJiraMaker/raw/refs/heads/main/sheet-cancel-plover.user.js
@@ -608,6 +608,7 @@
         params.set('summary', [left, data.psp].filter(Boolean).join(' / '));
         params.set('description', data.action === 'fullcancel' ? buildFullDesc(data) : buildPartialDesc(data));
         if (data.playerId) params.set('customfield_12600', data.playerId);
+        params.set('source', 'sheet');
         GM_openInTab(form + '?' + params.toString(), { active: true });
     }
 
@@ -745,6 +746,25 @@
         document.body.appendChild(btn);
     }
 
+    function clearTicketLink() {
+        const ticket = [...document.querySelectorAll('label')].find(l =>
+            l.textContent.replace(/\s+/g, ' ').trim().toLowerCase().replace(/\*$/, '') === 'ticket link'
+        );
+        const ticketBox = ticket ? (ticket.closest('.field-group') || ticket.parentElement) : null;
+        const ticketInput = ticketBox?.querySelector('input:not([type="hidden"]), textarea');
+        if (ticketInput) {
+            ticketInput.value = '';
+            ticketInput.dispatchEvent(new Event('input', { bubbles: true }));
+            ticketInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const named = document.querySelector('[name="customfield_12606"], #customfield_12606');
+        if (named) {
+            named.value = '';
+            named.dispatchEvent(new Event('input', { bubbles: true }));
+            named.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
     function fillPartialForm(data) {
         const left = [data.playerId, data.project].filter(Boolean).join(' ');
         const summary = [left, data.psp].filter(Boolean).join(' / ');
@@ -780,6 +800,7 @@
             setInputByLabel('PSP', data.psp);
             setInputByName('customfield_12605', data.psp);
         }
+        clearTicketLink();
         console.log('[Plover sheet] partial', data);
     }
 
@@ -811,7 +832,8 @@
     }
 
     function startFormFill() {
-        if (GM_getValue(FORM_SOURCE_KEY) === 'helpdesk') return;
+        const src = new URLSearchParams(location.search).get('source');
+        if (src && src !== 'sheet') return;
         const raw = GM_getValue(DATA_KEY);
         if (!raw) return;
         let data;
@@ -822,6 +844,7 @@
         addForceBtn('🔄 Заполнить форму', () => fn(data));
         setTimeout(() => fn(data), 1500);
         setTimeout(() => fn(data), 3000);
+        setTimeout(clearTicketLink, 3500);
     }
 
     if (/docs\.google\.com$/i.test(location.hostname)) {
